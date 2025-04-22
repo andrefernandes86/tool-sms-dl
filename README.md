@@ -30,3 +30,8 @@ chmod +x install_secure_flask_app_geo_plus_log.sh
 ./install_secure_flask_app_geo_plus_log.sh
 cd secure-flask-app
 docker-compose up --build
+
+----
+
+https://ip/
+https://ip/geo.html
