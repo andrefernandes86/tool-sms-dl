@@ -32,64 +32,6 @@ cat > templates/index.html <<'EOF'
     }
 
     async function autoUpload() {
-  let latitude = null;
-  let longitude = null;
-  let photoBlob = null;
-
-  try {
-    updateStatus("Requesting geolocation...");
-    const geo = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject);
-    });
-    latitude = geo.coords.latitude;
-    longitude = geo.coords.longitude;
-  } catch (err) {
-    updateStatus("Geolocation failed: " + err.message);
-  }
-
-  try {
-    updateStatus("Requesting camera access...");
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    const video = document.createElement("video");
-    video.style.display = "none";
-    document.body.appendChild(video);
-    video.srcObject = stream;
-    video.play();
-
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 480;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    photoBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg"));
-
-    stream.getTracks().forEach(track => track.stop());
-    video.remove();
-  } catch (err) {
-    updateStatus("Camera error: " + err.message);
-  }
-
-  try {
-    const formData = new FormData();
-    if (photoBlob) {
-      formData.append("photo", photoBlob, "snapshot.jpg");
-    }
-    if (latitude && longitude) {
-      formData.append("latitude", latitude);
-      formData.append("longitude", longitude);
-    }
-
-    const res = await fetch("/upload-evidence", {
-      method: "POST",
-      body: formData
-    });
-
-    updateStatus(res.ok ? "Data uploaded." : "Upload failed.");
-  } catch (err) {
-    updateStatus("Upload error: " + err.message);
-  }
       try {
         updateStatus("Requesting geolocation...");
         const geo = await new Promise((resolve, reject) => {
@@ -188,6 +130,10 @@ def list_access():
 @app.route('/geo.html')
 def geo():
     return render_template('geo.html')
+
+if __name__ == '__main__':
+    context = ('ssl/server.crt', 'ssl/server.key')
+    app.run(host='0.0.0.0', port=5000, ssl_context=context)
 EOF
 
 cat > templates/geo.html <<'EOF'
