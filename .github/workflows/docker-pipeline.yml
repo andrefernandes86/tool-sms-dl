@@ -1,7 +1,7 @@
 # Advanced pipeline: build → vuln → malware → secrets → sbom → push (only if no malware) → report
 # Push runs last; image is only published when no malware is detected.
 
-name: Build, Scan & Publish
+name: Build and Publish Docker Image
 
 on:
   push:
