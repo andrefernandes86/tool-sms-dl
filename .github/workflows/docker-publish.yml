@@ -1,0 +1,106 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Smish Detector/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Smish Detector/**'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: andrefernandes86/smishdetector
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      id: login
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: "./Smish Detector"
+        file: "./Smish Detector/Dockerfile"
+        platforms: linux/amd64,linux/arm64
+        push: ${{ github.event_name != 'pull_request' && steps.login.outcome == 'success' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Update Docker Hub description
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.login.outcome == 'success'
+      uses: peter-evans/dockerhub-description@v4
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        repository: ${{ env.IMAGE_NAME }}
+        short-description: "Advanced Security Intelligence Platform - Educational cybersecurity research and privacy awareness training tool"
+        readme-filepath: ./DOCKER.md
+      continue-on-error: true
+
+    - name: Generate build summary
+      run: |
+        echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image:** ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.login.outcome }}" == "success" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+          echo "✅ **Status:** Built and pushed to Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Usage:**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -d -p 443:5000 -e REPORT_PASSWORD=sms ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📍 **Access:** https://localhost:443 (main) | https://localhost:443/report (dashboard, password: sms)" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "✅ **Status:** Built successfully (PR - no push)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Status:** Built only (Docker Hub credentials not configured)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**To enable publishing:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Add \`DOCKERHUB_USERNAME\` secret: \`andrefernandes86\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Add \`DOCKERHUB_TOKEN\` secret: Your Docker Hub access token" >> $GITHUB_STEP_SUMMARY
+        fi
