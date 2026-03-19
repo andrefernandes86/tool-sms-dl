@@ -1,7 +1,7 @@
 # Advanced pipeline: build → vuln → malware → secrets → sbom → push (only if no malware) → report
 # Push runs last; image is only published when no malware is detected.
 
-name: Build and Publish Docker Image
+name: Build, Scan & Publish
 
 on:
   push:
@@ -183,6 +183,7 @@ jobs:
       run: docker load -i image.tar
     
     - name: Basic malware patterns check
+      id: basic_check
       run: |
         echo "## 🔍 Basic Security Patterns Check" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -219,6 +220,13 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Basic patterns check:** $malware_count suspicious patterns found" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Set basic output (will be overridden by TMAS if available)
+        if [ $malware_count -gt 3 ]; then
+          echo "basic_malware_found=true" >> $GITHUB_OUTPUT
+        else
+          echo "basic_malware_found=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: TMAS malware scan
       id: scan
@@ -276,14 +284,21 @@ jobs:
       run: |
         COUNT="0"
         FOUND="false"
+        BASIC_FOUND="${{ steps.basic_check.outputs.basic_malware_found }}"
+        
+        # Check TMAS results if available
         if [ -f tmas_scan_report.json ]; then
           COUNT=$(jq -r '.malware.count // .malwareScan.findingsCount // (.malware.findings | length) // 0' tmas_scan_report.json 2>/dev/null || echo "0")
           [ "$COUNT" = "null" ] && COUNT=0
           if [ "${COUNT:-0}" -gt 0 ] 2>/dev/null; then FOUND="true"; fi
         else
-          # If no scan report, assume scan failed - don't block push
-          FOUND="false"
+          # Use basic check result if TMAS not available
+          if [ "$BASIC_FOUND" = "true" ]; then
+            FOUND="true"
+            COUNT="1"
+          fi
         fi
+        
         echo "malware_found=$FOUND" >> $GITHUB_OUTPUT
         echo "malware_count=${COUNT:-0}" >> $GITHUB_OUTPUT
 
@@ -507,7 +522,7 @@ jobs:
     name: push-to-dockerhub
     needs: [malware-scan, sbom-scan]
     runs-on: ubuntu-latest
-    if: always() && (needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == ''))
+    if: always() && needs.malware-scan.result == 'success' && needs.malware-scan.outputs.malware_found != 'true'
     outputs:
       repo: ${{ steps.outputs.outputs.repo }}
     steps:
@@ -523,7 +538,7 @@ jobs:
         exit 0
     - name: Log in to Docker Hub
       id: login
-      if: needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == '')
+      if: needs.malware-scan.result == 'success' && needs.malware-scan.outputs.malware_found != 'true'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -532,7 +547,7 @@ jobs:
       continue-on-error: true
     - name: Tag and push
       id: push
-      if: needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == '') && steps.login.outcome == 'success'
+      if: needs.malware-scan.result == 'success' && needs.malware-scan.outputs.malware_found != 'true' && steps.login.outcome == 'success'
       run: |
         REPO="${{ env.DOCKERHUB_REPO }}"
         docker tag ${{ env.IMAGE_NAME }}:latest "$REPO:latest"
