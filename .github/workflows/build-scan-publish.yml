@@ -51,12 +51,63 @@ jobs:
     name: vulnerabilities-scan
     needs: build
     runs-on: ubuntu-latest
-    if: secrets.TMAS_API_KEY != ''
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
-    - name: TMAS vulnerability scan
+    
+    - name: Basic vulnerability patterns check
+      run: |
+        echo "## 🔍 Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        vuln_count=0
+        
+        # SQL Injection patterns
+        echo "### SQL Injection Check" >> $GITHUB_STEP_SUMMARY
+        if grep -r -n -E "(execute|query).*\+.*request\.|cursor\.execute.*%" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Potential SQL injection patterns detected**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        else
+          echo "✅ **No SQL injection patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Command Injection patterns
+        echo "### Command Injection Check" >> $GITHUB_STEP_SUMMARY
+        if grep -r -n -E "(os\.system|subprocess\.call|shell=True)" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Potential command injection patterns detected**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        else
+          echo "✅ **No command injection patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Path Traversal patterns
+        echo "### Path Traversal Check" >> $GITHUB_STEP_SUMMARY
+        if grep -r -n -E "(open\(.*request\.|\.\.\/)" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Potential path traversal patterns detected**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        else
+          echo "✅ **No path traversal patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # XSS patterns
+        echo "### XSS Check" >> $GITHUB_STEP_SUMMARY
+        if grep -r -n -E "(innerHTML|document\.write|eval\()" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Potential XSS patterns detected**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        else
+          echo "✅ **No XSS patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "**Total potential vulnerabilities:** $vuln_count" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+    
+    - name: TMAS vulnerability scan (if available)
       id: scan
+      if: env.TMAS_API_KEY != ''
       uses: trendmicro/tmas-scan-action@v3.1.1
       with:
         tmasApiKey: ${{ secrets.TMAS_API_KEY }}
@@ -66,6 +117,8 @@ jobs:
         malwareScan: "false"
         secretsScan: "false"
         additionalArgs: ""
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
       continue-on-error: true
     - name: Analyze vulnerabilities and create summary
       if: always()
@@ -117,7 +170,7 @@ jobs:
     name: malware-scan
     needs: vulnerabilities-scan
     runs-on: ubuntu-latest
-    if: always() && secrets.TMAS_API_KEY != ''
+    if: always()
     continue-on-error: true
     outputs:
       malware_found: ${{ steps.set_status.outputs.malware_found }}
@@ -128,6 +181,45 @@ jobs:
         name: docker-image
     - name: Load image
       run: docker load -i image.tar
+    
+    - name: Basic malware patterns check
+      run: |
+        echo "## 🔍 Basic Security Patterns Check" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        malware_count=0
+        
+        # Check for suspicious patterns
+        echo "### Suspicious Code Patterns" >> $GITHUB_STEP_SUMMARY
+        
+        # Check for base64 encoded content (potential obfuscation)
+        if find "Smish Detector/" -name "*.py" -o -name "*.js" -o -name "*.html" | xargs grep -l -E "[A-Za-z0-9+/]{50,}={0,2}" 2>/dev/null; then
+          echo "⚠️ **Potential base64 encoded content found**" >> $GITHUB_STEP_SUMMARY
+          malware_count=$((malware_count + 1))
+        else
+          echo "✅ **No suspicious base64 content found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check for eval/exec patterns
+        if grep -r -n -E "(eval\(|exec\(|__import__)" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Dynamic code execution patterns found**" >> $GITHUB_STEP_SUMMARY
+          malware_count=$((malware_count + 1))
+        else
+          echo "✅ **No dynamic code execution patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check for network/download patterns
+        if grep -r -n -E "(urllib\.request|requests\.get|wget|curl)" "Smish Detector/" --exclude-dir=.git 2>/dev/null | grep -v -E "(geolocation|api)" | head -3; then
+          echo "⚠️ **Network download patterns found - review for legitimacy**" >> $GITHUB_STEP_SUMMARY
+          malware_count=$((malware_count + 1))
+        else
+          echo "✅ **No suspicious network patterns found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Basic patterns check:** $malware_count suspicious patterns found" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+    
     - name: TMAS malware scan
       id: scan
       uses: trendmicro/tmas-scan-action@v3.1.1
@@ -199,11 +291,67 @@ jobs:
     name: secrets-scan
     needs: malware-scan
     runs-on: ubuntu-latest
-    if: always() && secrets.TMAS_API_KEY != ''
+    if: always()
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
-    - name: TMAS secrets scan
+    
+    - name: Basic secrets patterns check
+      run: |
+        echo "## 🔐 Secrets Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        secrets_count=0
+        
+        # Check for common secrets patterns
+        echo "### Hardcoded Secrets Check" >> $GITHUB_STEP_SUMMARY
+        
+        # Check for API keys, passwords, tokens
+        if grep -r -i -n -E "(password|secret|key|token|api_key)\s*[:=]\s*['\"][^'\"]{8,}" "Smish Detector/" --exclude-dir=.git --exclude="*.md" 2>/dev/null | grep -v -E "(REPORT_PASSWORD|placeholder|example|TODO|template)" | head -5; then
+          echo "⚠️ **Potential hardcoded secrets found**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -r -i -n -E "(password|secret|key|token|api_key)\s*[:=]\s*['\"][^'\"]{8,}" "Smish Detector/" --exclude-dir=.git --exclude="*.md" 2>/dev/null | grep -v -E "(REPORT_PASSWORD|placeholder|example|TODO|template)" | head -5 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          secrets_count=$((secrets_count + 1))
+        else
+          echo "✅ **No hardcoded secrets detected**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check for private keys
+        if grep -r -n -E "(BEGIN.*PRIVATE.*KEY|BEGIN.*RSA.*PRIVATE)" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Private keys found**" >> $GITHUB_STEP_SUMMARY
+          secrets_count=$((secrets_count + 1))
+        else
+          echo "✅ **No private keys found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check for database URLs
+        if grep -r -n -E "(mysql://|postgres://|mongodb://)" "Smish Detector/" --exclude-dir=.git 2>/dev/null; then
+          echo "⚠️ **Database connection strings found**" >> $GITHUB_STEP_SUMMARY
+          secrets_count=$((secrets_count + 1))
+        else
+          echo "✅ **No database connection strings found**" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Basic secrets check:** $secrets_count potential issues found" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+    
+    - name: TMAS secrets scan (if available)
+      id: scan
+      if: env.TMAS_API_KEY != ''
+      uses: trendmicro/tmas-scan-action@v3.1.1
+      with:
+        tmasApiKey: ${{ secrets.TMAS_API_KEY }}
+        githubToken: ${{ secrets.GITHUB_TOKEN }}
+        artifact: "dir:."
+        vulnerabilitiesScan: "false"
+        malwareScan: "false"
+        secretsScan: "true"
+        additionalArgs: ""
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      continue-on-error: true
       id: scan
       uses: trendmicro/tmas-scan-action@v3.1.1
       with:
@@ -255,11 +403,62 @@ jobs:
     name: sbom-scan
     needs: secrets-scan
     runs-on: ubuntu-latest
-    if: always() && secrets.TMAS_API_KEY != ''
+    if: always()
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
-    - name: TMAS SBOM scan
+    
+    - name: Basic dependency analysis
+      run: |
+        echo "## 📦 Software Bill of Materials (SBOM)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Analyze Python dependencies
+        if [ -f "Smish Detector/requirements.txt" ]; then
+          echo "### Python Dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Version |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|---------|" >> $GITHUB_STEP_SUMMARY
+          while IFS= read -r line; do
+            if [[ $line =~ ^[a-zA-Z0-9_-]+([>=<~!]+[0-9.]+)?$ ]]; then
+              pkg=$(echo "$line" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1 | cut -d'~' -f1)
+              ver=$(echo "$line" | grep -oE '[>=<~!]+[0-9.]+' || echo "latest")
+              echo "| $pkg | $ver |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done < "Smish Detector/requirements.txt"
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check for known vulnerable packages (basic check)
+        echo "### Basic Vulnerability Check" >> $GITHUB_STEP_SUMMARY
+        vuln_found=false
+        if [ -f "Smish Detector/requirements.txt" ]; then
+          # Check for some commonly vulnerable packages
+          if grep -i -E "(flask==1\.|requests==2\.2[0-5]\.|urllib3==1\.[0-2][0-5])" "Smish Detector/requirements.txt" 2>/dev/null; then
+            echo "⚠️ **Potentially outdated packages detected**" >> $GITHUB_STEP_SUMMARY
+            vuln_found=true
+          fi
+        fi
+        
+        if [ "$vuln_found" = false ]; then
+          echo "✅ **No obviously outdated packages detected**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+    
+    - name: TMAS SBOM scan (if available)
+      id: scan
+      if: env.TMAS_API_KEY != ''
+      uses: trendmicro/tmas-scan-action@v3.1.1
+      with:
+        tmasApiKey: ${{ secrets.TMAS_API_KEY }}
+        githubToken: ${{ secrets.GITHUB_TOKEN }}
+        artifact: "dir:."
+        vulnerabilitiesScan: "true"
+        malwareScan: "false"
+        secretsScan: "false"
+        additionalArgs: ""
+      env:
+        TMAS_API_KEY: ${{ secrets.TMAS_API_KEY }}
+      continue-on-error: true
       id: scan
       uses: trendmicro/tmas-scan-action@v3.1.1
       with:
@@ -308,7 +507,7 @@ jobs:
     name: push-to-dockerhub
     needs: [malware-scan, sbom-scan]
     runs-on: ubuntu-latest
-    if: always() && (needs.malware-scan.result == 'skipped' || needs.malware-scan.outputs.malware_found == 'false')
+    if: always() && (needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == ''))
     outputs:
       repo: ${{ steps.outputs.outputs.repo }}
     steps:
@@ -324,7 +523,7 @@ jobs:
         exit 0
     - name: Log in to Docker Hub
       id: login
-      if: needs.malware-scan.result == 'skipped' || needs.malware-scan.outputs.malware_found == 'false'
+      if: needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == '')
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -333,7 +532,7 @@ jobs:
       continue-on-error: true
     - name: Tag and push
       id: push
-      if: (needs.malware-scan.result == 'skipped' || needs.malware-scan.outputs.malware_found == 'false') && steps.login.outcome == 'success'
+      if: needs.malware-scan.result == 'success' && (needs.malware-scan.outputs.malware_found == 'false' || needs.malware-scan.outputs.malware_found == '') && steps.login.outcome == 'success'
       run: |
         REPO="${{ env.DOCKERHUB_REPO }}"
         docker tag ${{ env.IMAGE_NAME }}:latest "$REPO:latest"

@@ -52,6 +52,50 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
           type=sha,prefix={{branch}}-
 
+    - name: Run basic security checks
+      run: |
+        echo "## 🔍 Security Checks" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Check for common secrets patterns
+        echo "### Secrets Scan" >> $GITHUB_STEP_SUMMARY
+        if grep -r -i -E "(password|secret|key|token|api_key)" "Smish Detector/" --exclude-dir=.git --exclude="*.md" | grep -v -E "(REPORT_PASSWORD|placeholder|example|TODO)" | head -5; then
+          echo "⚠️ **Potential secrets found - review before deployment**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -r -i -E "(password|secret|key|token|api_key)" "Smish Detector/" --exclude-dir=.git --exclude="*.md" | grep -v -E "(REPORT_PASSWORD|placeholder|example|TODO)" | head -5 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        else
+          echo "✅ **No hardcoded secrets detected**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Check for common vulnerabilities
+        echo "### Vulnerability Patterns" >> $GITHUB_STEP_SUMMARY
+        vuln_count=0
+        
+        # Check for SQL injection patterns
+        if grep -r -E "(execute|query).*\+.*request\.|cursor\.execute.*%" "Smish Detector/" --exclude-dir=.git; then
+          echo "⚠️ **Potential SQL injection patterns found**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        fi
+        
+        # Check for command injection patterns  
+        if grep -r -E "(os\.system|subprocess\.call|shell=True)" "Smish Detector/" --exclude-dir=.git; then
+          echo "⚠️ **Potential command injection patterns found**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        fi
+        
+        # Check for unsafe file operations
+        if grep -r -E "(open\(.*request\.|\.\.\/)" "Smish Detector/" --exclude-dir=.git; then
+          echo "⚠️ **Potential path traversal patterns found**" >> $GITHUB_STEP_SUMMARY
+          vuln_count=$((vuln_count + 1))
+        fi
+        
+        if [ $vuln_count -eq 0 ]; then
+          echo "✅ **No common vulnerability patterns detected**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
@@ -64,6 +108,31 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Scan Docker image for basic issues
+      if: steps.build.outcome == 'success'
+      run: |
+        # Load the built image for scanning
+        docker images
+        
+        echo "### Docker Image Security" >> $GITHUB_STEP_SUMMARY
+        
+        # Check image size
+        size=$(docker images --format "table {{.Size}}" ${{ env.IMAGE_NAME }} | tail -n +2 | head -1)
+        echo "- **Image Size:** $size" >> $GITHUB_STEP_SUMMARY
+        
+        # Check for running as root
+        if docker run --rm ${{ env.IMAGE_NAME }}:latest whoami 2>/dev/null | grep -q root; then
+          echo "⚠️ **Warning:** Container runs as root user" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "✅ **Good:** Container runs as non-root user" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Check exposed ports
+        ports=$(docker inspect ${{ env.IMAGE_NAME }}:latest | jq -r '.[0].Config.ExposedPorts // {} | keys[]' 2>/dev/null || echo "No exposed ports")
+        echo "- **Exposed Ports:** $ports" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
 
     - name: Update Docker Hub description
       if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.login.outcome == 'success'
