@@ -18,9 +18,9 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: smishdetector
+  IMAGE_NAME: tools-sms-dl
   REGISTRY: docker.io
-  DOCKERHUB_REPO: andrefernandes86/smishdetector
+  DOCKERHUB_REPO: andrefernandes86/tools-sms-dl
 
 jobs:
   build:
@@ -333,7 +333,7 @@ jobs:
       id: push
       if: vars.PUBLISH_TO_DOCKERHUB == 'true' && needs.malware-scan.outputs.malware_found == 'false'
       run: |
-        REPO="${{ vars.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}"
+        REPO="${{ env.DOCKERHUB_REPO }}"
         docker tag ${{ env.IMAGE_NAME }}:latest "$REPO:latest"
         docker push "$REPO:latest" || true
         echo "repo=$REPO" >> $GITHUB_OUTPUT

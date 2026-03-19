@@ -1,8 +1,8 @@
 # 🔒 Smish Detector - Docker Image
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/andrefernandes86/smishdetector)](https://hub.docker.com/r/andrefernandes86/smishdetector)
-[![Docker Image Size](https://img.shields.io/docker/image-size/andrefernandes86/smishdetector/latest)](https://hub.docker.com/r/andrefernandes86/smishdetector)
-[![Docker Image Version](https://img.shields.io/docker/v/andrefernandes86/smishdetector?sort=semver)](https://hub.docker.com/r/andrefernandes86/smishdetector)
+[![Docker Pulls](https://img.shields.io/docker/pulls/andrefernandes86/tools-sms-dl)](https://hub.docker.com/r/andrefernandes86/tools-sms-dl)
+[![Docker Image Size](https://img.shields.io/docker/image-size/andrefernandes86/tools-sms-dl/latest)](https://hub.docker.com/r/andrefernandes86/tools-sms-dl)
+[![Docker Image Version](https://img.shields.io/docker/v/andrefernandes86/tools-sms-dl?sort=semver)](https://hub.docker.com/r/andrefernandes86/tools-sms-dl)
 
 Advanced Security Intelligence Platform for **educational cybersecurity research and privacy awareness training**.
 
@@ -25,7 +25,7 @@ docker run -d \
   -p 443:5000 \
   -e REPORT_PASSWORD=sms \
   -v smish_data:/app/static \
-  andrefernandes86/smishdetector:latest
+  andrefernandes86/tools-sms-dl:latest
 ```
 
 ### **Docker Compose (Recommended)**
@@ -33,7 +33,7 @@ docker run -d \
 version: '3.8'
 services:
   smishdetector:
-    image: andrefernandes86/smishdetector:latest
+    image: andrefernandes86/tools-sms-dl:latest
     container_name: smish-detector
     ports:
       - "443:5000"
@@ -108,7 +108,7 @@ docker run -d \
   --name smish-detector \
   -p 443:5000 \
   -v /path/to/certs:/app/ssl \
-  andrefernandes86/smishdetector:latest
+  andrefernandes86/tools-sms-dl:latest
 ```
 
 ### **Persistent Data**
@@ -118,7 +118,7 @@ docker run -d \
   -p 443:5000 \
   -v smish_database:/app \
   -v smish_photos:/app/static \
-  andrefernandes86/smishdetector:latest
+  andrefernandes86/tools-sms-dl:latest
 ```
 
 ### **Network Mode**
@@ -127,7 +127,7 @@ docker run -d \
 docker run -d \
   --name smish-detector \
   --network host \
-  andrefernandes86/smishdetector:latest
+  andrefernandes86/tools-sms-dl:latest
 ```
 
 ## 📱 **Mobile Support**
@@ -186,7 +186,7 @@ The platform captures comprehensive visitor data including:
 ## 🔗 **Links**
 
 - **GitHub Repository:** https://github.com/andrefernandes86/tool-sms-dl
-- **Docker Hub:** https://hub.docker.com/r/andrefernandes86/smishdetector
+- **Docker Hub:** https://hub.docker.com/r/andrefernandes86/tools-sms-dl
 - **Documentation:** See repository README for detailed setup
 
 ## 📄 **License**
