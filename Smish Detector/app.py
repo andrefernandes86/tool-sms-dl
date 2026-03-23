@@ -97,54 +97,43 @@ def index():
     return render_template('index.html')
 
 def get_geo_info(ip):
-    """Get geographic information for an IP address"""
+    """Get geographic information for an IP address - optimized for speed"""
     print(f"[DEBUG] Getting geo info for IP: {ip}")
     
     # Skip private/local IP addresses
-    if ip in ['127.0.0.1', 'localhost'] or ip.startswith('192.168.') or ip.startswith('10.') or ip.startswith('172.'):
+    if (ip in ['127.0.0.1', 'localhost', 'Unknown'] or 
+        ip.startswith('192.168.') or ip.startswith('10.') or 
+        ip.startswith('172.16.') or ip.startswith('172.17.') or 
+        ip.startswith('172.18.') or ip.startswith('172.19.') or
+        ip.startswith('172.2') or ip.startswith('172.3')):
         print(f"[DEBUG] Skipping private IP: {ip}")
         return {'country': 'Private Network', 'region': 'Local', 'city': 'Local', 'isp': 'Private'}
     
-    # Try multiple geolocation services
-    services = [
-        f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,isp,query",
-        f"https://ipapi.co/{ip}/json/",
-        f"http://ipwho.is/{ip}"
-    ]
-    
-    for service_url in services:
-        try:
-            print(f"[DEBUG] Trying service: {service_url}")
-            response = requests.get(service_url, timeout=10)
+    # Use fastest, most reliable service first with short timeout
+    try:
+        print(f"[DEBUG] Trying ip-api.com for IP: {ip}")
+        url = f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,isp,query"
+        response = requests.get(url, timeout=3)  # Reduced from 10 to 3 seconds
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"[DEBUG] Response data: {data}")
             
-            if response.status_code == 200:
-                data = response.json()
-                print(f"[DEBUG] Response data: {data}")
-                
-                # Handle ip-api.com response
-                if 'status' in data:
-                    if data.get('status') == 'success':
-                        return {
-                            'country': data.get('country', 'Unknown'),
-                            'region': data.get('regionName', 'Unknown'), 
-                            'city': data.get('city', 'Unknown'),
-                            'isp': data.get('isp', 'Unknown')
-                        }
-                    else:
-                        print(f"[DEBUG] ip-api.com failed: {data.get('message', 'Unknown error')}")
-                        continue
-                
-                # Handle ipapi.co response
-                elif 'country_name' in data:
-                    return {
-                        'country': data.get('country_name', 'Unknown'),
-                        'region': data.get('region', 'Unknown'), 
-                        'city': data.get('city', 'Unknown'),
-                        'isp': data.get('org', 'Unknown')
-                    }
-                
-                # Handle ipwho.is response
-                elif 'country' in data:
+            if data.get('status') == 'success':
+                return {
+                    'country': data.get('country', 'Unknown'),
+                    'region': data.get('regionName', 'Unknown'), 
+                    'city': data.get('city', 'Unknown'),
+                    'isp': data.get('isp', 'Unknown')
+                }
+            else:
+                print(f"[DEBUG] ip-api.com failed: {data.get('message', 'Unknown error')}")
+        
+    except Exception as e:
+        print(f"[DEBUG] Geolocation failed for {ip}: {e}")
+    
+    # Return default values if geolocation fails
+    return {'country': 'Unknown', 'region': 'Unknown', 'city': 'Unknown', 'isp': 'Unknown'}
                     return {
                         'country': data.get('country', 'Unknown'),
                         'region': data.get('region', 'Unknown'), 
@@ -159,21 +148,40 @@ def get_geo_info(ip):
     print("[DEBUG] All geolocation services failed")
     return {'country': 'Unknown', 'region': 'Unknown', 'city': 'Unknown', 'isp': 'Unknown'}
 
+def get_client_ip(request):
+    """Get the real client IP address, handling proxies and load balancers"""
+    # Check for forwarded headers (common with proxies/load balancers)
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        # X-Forwarded-For can contain multiple IPs, first one is usually the client
+        client_ip = forwarded_for.split(',')[0].strip()
+        if client_ip and not client_ip.startswith('127.') and not client_ip.startswith('192.168.'):
+            return client_ip
+    
+    # Check other common proxy headers
+    real_ip = request.headers.get('X-Real-IP')
+    if real_ip and not real_ip.startswith('127.') and not real_ip.startswith('192.168.'):
+        return real_ip
+    
+    # Check Cloudflare header
+    cf_ip = request.headers.get('CF-Connecting-IP')
+    if cf_ip and not cf_ip.startswith('127.') and not cf_ip.startswith('192.168.'):
+        return cf_ip
+    
+    # Fallback to remote_addr
+    remote_ip = request.remote_addr
+    if remote_ip and not remote_ip.startswith('127.') and not remote_ip.startswith('192.168.'):
+        return remote_ip
+    
+    return 'Unknown'
+
 def get_public_ip():
+    """Get server's public IP (fallback only)"""
     try:
-        # Try multiple services for reliability
-        services = [
-            'https://api.ipify.org',
-            'https://icanhazip.com',
-            'https://ifconfig.me/ip'
-        ]
-        for service in services:
-            try:
-                response = requests.get(service, timeout=3)
-                if response.status_code == 200:
-                    return response.text.strip()
-            except:
-                continue
+        # Single fast service with short timeout
+        response = requests.get('https://api.ipify.org', timeout=2)
+        if response.status_code == 200:
+            return response.text.strip()
     except:
         pass
     return 'Unknown'
@@ -189,15 +197,13 @@ def save_incremental():
             return jsonify({'error': 'No session ID provided'}), 400
         
         # Get basic request info
-        ip = request.remote_addr
+        ip = get_client_ip(request)  # Use real client IP instead of server IP
         user_agent_string = request.headers.get('User-Agent', '')
         user_agent = parse(user_agent_string)
         timestamp = datetime.now().isoformat()
-        
-        # Get public IP for geolocation
-        public_ip = get_public_ip()
-        geo_ip = public_ip if public_ip != 'Unknown' else ip
-        geo_info = get_geo_info(geo_ip)
+
+        # Get geolocation for client IP
+        geo_info = get_geo_info(ip)
         
         # Create a new database connection for this request
         local_conn = sqlite3.connect(DB_FILE)
@@ -341,17 +347,14 @@ def upload_evidence():
     local_ip = request.form.get('local_ip', 'Unknown')
     clipboard_data = request.form.get('clipboard_data', '')
     
-    ip = request.remote_addr
+    ip = get_client_ip(request)  # Use real client IP
     user_agent_string = request.headers.get('User-Agent', '')
     user_agent = parse(user_agent_string)
-    
-    # Get public IP first
-    public_ip = get_public_ip()
-    print(f"[DEBUG] Local IP: {ip}, Public IP: {public_ip}")
-    
-    # Use public IP for geolocation if available, otherwise use request IP
-    geo_ip = public_ip if public_ip != 'Unknown' else ip
-    geo_info = get_geo_info(geo_ip)
+
+    print(f"[DEBUG] Client IP: {ip}")
+
+    # Get geolocation for client IP
+    geo_info = get_geo_info(ip)
     
     print(f"[DEBUG] Geo info for {geo_ip}: {geo_info}")
     
@@ -539,18 +542,18 @@ def debug_geo():
     if not session.get('authenticated'):
         return redirect(url_for('login'))
     
-    ip = request.remote_addr
-    public_ip = get_public_ip()
-    
-    # Test geolocation with both IPs
-    local_geo = get_geo_info(ip)
-    public_geo = get_geo_info(public_ip) if public_ip != 'Unknown' else {'error': 'No public IP'}
+    client_ip = get_client_ip(request)
+    server_ip = get_public_ip()
+
+    # Test geolocation with client IP
+    client_geo = get_geo_info(client_ip)
+    server_geo = get_geo_info(server_ip) if server_ip != 'Unknown' else {'error': 'No server public IP'}
     
     debug_info = {
-        'request_ip': ip,
-        'public_ip': public_ip,
-        'local_geo_info': local_geo,
-        'public_geo_info': public_geo,
+        'client_ip': client_ip,
+        'server_public_ip': server_ip,
+        'client_geo_info': client_geo,
+        'server_geo_info': server_geo,
         'headers': dict(request.headers),
         'timestamp': datetime.now().isoformat()
     }

